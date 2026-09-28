@@ -92,7 +92,8 @@ changes in these two scenarios:
 The `certutil` tooling is installed in OS-specific ways:
 
 * Mac: `brew install nss`
-* Linux: `apt install libnss3-tools`
+* Linux (Debian/Ubuntu): `apt install libnss3-tools`
+* Linux (Fedora/RHEL): `dnf install nss-tools`
 * Windows: N/A (there is no easy, hands-off way to install certutil on Windows,
   so devcert will simply fallback to the wizard approach for Firefox outlined
   above)
