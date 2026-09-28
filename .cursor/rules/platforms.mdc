@@ -1,0 +1,40 @@
+---
+description: Platform adapters for trust stores, hosts, and protected CA keys
+globs: src/platforms/**/*.ts
+alwaysApply: false
+---
+
+# Platforms
+
+`platforms/index.ts` loads `./${process.platform}` (`darwin` | `linux` | `win32`) and exports a singleton implementing `Platform`.
+
+## Interface
+
+```ts
+addToTrustStores(certPath, options?)
+removeFromTrustStores(certPath)
+addDomainToHostFileIfMissing(domain)
+deleteProtectedFiles / readProtectedFile / writeProtectedFile
+```
+
+## Per OS
+
+| | Trust store | Firefox / Chrome | CA key protection |
+|--|-------------|------------------|-------------------|
+| **darwin** | `security add-trusted-cert` → System.keychain | NSS via Homebrew `nss` `certutil`, else Firefox wizard | root-owned `chmod 600` via sudo |
+| **linux** | Debian: `/usr/local/share/ca-certificates` + `update-ca-certificates`; RHEL/Fedora (`update-ca-trust` present): `/etc/pki/ca-trust/source/anchors` + `update-ca-trust` | Firefox + Chrome `~/.pki/nssdb` via `certutil` (`apt`/`libnss3-tools` or `dnf`/`yum`/`nss-tools`); Chrome has no GUI fallback | same as darwin |
+| **win32** | Windows `certutil -addstore -user root` | Always Firefox GUI wizard (no easy NSS certutil) | AES256 encrypt with user password (`createCipher`/`createDecipher`) |
+
+## Shared (`shared.ts`)
+
+- NSS DB discovery: `cert8.db` (legacy) / `cert9.db` (modern `sql:` prefix).
+- `closeFirefox` before NSS writes (Firefox reloads DB on exit).
+- `openCertificateInFirefox`: temp HTTP server hosts CA cert to trigger import wizard.
+- `assertNotTouchingFiles`: only allow ops under config / legacy config dirs.
+
+## Caveats when editing
+
+- Linux Chrome without `certutil` cannot be fixed via wizard — warn via UI.
+- Hosts edits on darwin/linux use `sudo tee -a`; Windows uses `sudo-prompt`.
+- `removeCertificateFromNSSCertDB` currently re-adds with `-A` (likely bug; do not copy that pattern blindly).
+---
