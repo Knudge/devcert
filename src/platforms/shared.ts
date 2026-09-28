@@ -4,16 +4,13 @@ import createDebug from 'debug';
 import assert from 'assert';
 import getPort from 'get-port';
 import http from 'http';
-import fs, { readFileSync as readFile, existsSync as exists } from 'fs';
+import { globSync, readFileSync as readFile, existsSync as exists } from 'fs';
 import { run } from '../utils';
 import { isMac, isLinux , configDir, getLegacyConfigDir } from '../constants';
 import UI from '../user-interface';
 import { execSync as exec } from 'child_process';
 
 const debug = createDebug('devcert:platforms:shared');
-
-// fs.globSync is Node >= 22; @types/node here predates it
-const globSync = (fs as typeof fs & { globSync(pattern: string): string[] }).globSync;
 
 /**
  *  Given a directory or glob pattern of directories, run a callback for each db

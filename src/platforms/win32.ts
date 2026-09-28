@@ -95,13 +95,39 @@ export default class WindowsPlatform implements Platform {
   }
 
   private encrypt(text: string, key: string) {
-    let cipher = crypto.createCipher('aes256', new Buffer(key));
+    const { key: derivedKey, iv } = evpBytesToKey(key);
+    const cipher = crypto.createCipheriv('aes-256-cbc', derivedKey, iv);
     return cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
   }
 
   private decrypt(encrypted: string, key: string) {
-    let decipher = crypto.createDecipher('aes256', new Buffer(key));
+    const { key: derivedKey, iv } = evpBytesToKey(key);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', derivedKey, iv);
     return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
   }
 
+}
+
+/**
+ * Reproduce OpenSSL EVP_BytesToKey (MD5, no salt) used by the removed
+ * crypto.createCipher('aes256', password) so existing Windows-encrypted CA
+ * keys remain readable.
+ */
+function evpBytesToKey(password: string): { key: Buffer; iv: Buffer } {
+  const passwordBuf = Buffer.from(password);
+  const keyLen = 32;
+  const ivLen = 16;
+  const derived = Buffer.alloc(keyLen + ivLen);
+  let offset = 0;
+  let block = Buffer.alloc(0);
+  while (offset < derived.length) {
+    block = crypto.createHash('md5').update(block).update(passwordBuf).digest();
+    const copyLen = Math.min(block.length, derived.length - offset);
+    block.copy(derived, offset, 0, copyLen);
+    offset += copyLen;
+  }
+  return {
+    key: derived.subarray(0, keyLen),
+    iv: derived.subarray(keyLen, keyLen + ivLen)
+  };
 }
