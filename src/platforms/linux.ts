@@ -10,6 +10,9 @@ import { Platform } from '.';
 
 const debug = createDebug('devcert:platforms:linux');
 
+const DEBIAN_CA_PATH = '/usr/local/share/ca-certificates/devcert.crt';
+const RHEL_CA_PATH = '/etc/pki/ca-trust/source/anchors/devcert.crt';
+
 export default class LinuxPlatform implements Platform {
 
   private FIREFOX_NSS_DIR = path.join(process.env.HOME, '.mozilla/firefox/*');
@@ -31,10 +34,8 @@ export default class LinuxPlatform implements Platform {
   async addToTrustStores(certificatePath: string, options: Options = {}): Promise<void> {
 
     debug('Adding devcert root CA to Linux system-wide trust stores');
-    // run(`sudo cp ${ certificatePath } /etc/ssl/certs/devcert.crt`);
-    run('sudo', ['cp', certificatePath, '/usr/local/share/ca-certificates/devcert.crt']);
-    // run(`sudo bash -c "cat ${ certificatePath } >> /etc/ssl/certs/ca-certificates.crt"`);
-    run('sudo', ['update-ca-certificates']);
+    run('sudo', ['cp', certificatePath, this.systemCAPath()]);
+    this.updateSystemTrustStore();
 
     if (this.isFirefoxInstalled()) {
       // Firefox
@@ -44,8 +45,8 @@ export default class LinuxPlatform implements Platform {
           debug('NSS tooling is not already installed, and `skipCertutil` is true, so falling back to manual certificate install for Firefox');
           openCertificateInFirefox(this.FIREFOX_BIN_PATH, certificatePath);
         } else {
-          debug('NSS tooling is not already installed. Trying to install NSS tooling now with `apt install`');
-          run('sudo',  ['apt', 'install', 'libnss3-tools']);
+          debug('NSS tooling is not already installed. Trying to install NSS tooling now');
+          this.installCertutil();
           debug('Installing certificate into Firefox trust stores using NSS tooling');
           await closeFirefox();
           await addCertificateToNSSCertDB(this.FIREFOX_NSS_DIR, certificatePath, 'certutil');
@@ -70,10 +71,10 @@ export default class LinuxPlatform implements Platform {
   
   removeFromTrustStores(certificatePath: string) {
     try {
-      run('sudo', ['rm', '/usr/local/share/ca-certificates/devcert.crt']);
-      run('sudo', ['update-ca-certificates']);
+      run('sudo', ['rm', this.systemCAPath()]);
+      this.updateSystemTrustStore();
     } catch (e) {
-      debug(`failed to remove ${ certificatePath } from /usr/local/share/ca-certificates, continuing. ${ e.toString() }`);
+      debug(`failed to remove ${ certificatePath } from system trust store at ${ this.systemCAPath() }, continuing. ${ e.toString() }`);
     }
     if (commandExists('certutil')) {
       if (this.isFirefoxInstalled()) {
@@ -111,6 +112,34 @@ export default class LinuxPlatform implements Platform {
     writeFile(filepath, contents);
     await run('sudo', ['chown', '0', filepath]);
     await run('sudo', ['chmod', '600', filepath]);
+  }
+
+  private usesUpdateCaTrust(): boolean {
+    return commandExists('update-ca-trust');
+  }
+
+  private systemCAPath(): string {
+    return this.usesUpdateCaTrust() ? RHEL_CA_PATH : DEBIAN_CA_PATH;
+  }
+
+  private updateSystemTrustStore(): void {
+    if (this.usesUpdateCaTrust()) {
+      run('sudo', ['update-ca-trust']);
+      return;
+    }
+    run('sudo', ['update-ca-certificates']);
+  }
+
+  private installCertutil(): void {
+    if (commandExists('dnf')) {
+      run('sudo', ['dnf', 'install', '-y', 'nss-tools']);
+      return;
+    }
+    if (commandExists('yum')) {
+      run('sudo', ['yum', 'install', '-y', 'nss-tools']);
+      return;
+    }
+    run('sudo', ['apt', 'install', 'libnss3-tools']);
   }
 
   private isFirefoxInstalled() {
