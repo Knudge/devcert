@@ -1,0 +1,45 @@
+---
+description: Architecture and purpose of the devcert library
+alwaysApply: true
+---
+
+# devcert
+
+Node library that generates trusted local SSL/TLS certificates for development. Upstream: davewasmer/devcert; this fork remote is Knudge/devcert.
+
+## How it works
+
+1. First run: create a machine-local root CA, protect the CA private key, install the CA into OS/browser trust stores.
+2. Per request: generate (or reuse cached) domain certs signed by that CA; optionally append domains to `/etc/hosts`.
+3. Return `{ key, cert }` Buffers suitable for `https.createServer`.
+
+Certs last **825 days** (Catalina limit). Domain dirs also get a `*.domain` SAN entry.
+
+## Layout
+
+| Path | Role |
+|------|------|
+| `src/index.ts` | Public API: `certificateFor`, `hasCertificateFor`, `configuredDomains`, `removeDomain`, `uninstall` |
+| `src/certificate-authority.ts` | Root CA install, credential access, uninstall, v1→v1.1 migration |
+| `src/certificates.ts` | Domain key/CSR/cert generation via openssl |
+| `src/constants.ts` | Config paths, SAN helpers, lodash-templated openssl configs |
+| `src/platforms/*.ts` | OS-specific trust store, hosts file, protected file I/O |
+| `src/user-interface.ts` | Overridable prompts for integrators |
+| `openssl-configurations/` | Lodash templates for openssl (`<%= %>`) |
+
+Config lives under `application-config-path('devcert')` (e.g. `~/.config/devcert`): `certificate-authority/`, `domains/`, `devcert-ca-version`.
+
+## Build
+
+- TypeScript → CommonJS `dist/` (`tsc`, target ES2016)
+- Requires system `openssl` on PATH
+- Debug: `DEBUG=devcert*`
+- No real automated tests (`npm test` is a stub); manual VM snapshots documented in README
+
+## Security invariants
+
+- Never expose the CA private key via the public API (only optional CA **cert** via `getCaBuffer` / `getCaPath`).
+- Protected file ops must go through `assertNotTouchingFiles` (config dirs only).
+- Shell out with `execFileSync` / arg arrays (`run()`), never shell-string interpolation of domains.
+- Validate domains with `is-valid-domain` (`localhost` is special-cased).
+---

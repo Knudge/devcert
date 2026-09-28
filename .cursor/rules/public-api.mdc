@@ -1,0 +1,39 @@
+---
+description: Public API options, caching, and return shapes
+globs: src/index.ts,src/certificate-authority.ts,src/certificates.ts,src/constants.ts,src/user-interface.ts
+alwaysApply: false
+---
+
+# Public API
+
+## `certificateFor(domains, options?)`
+
+- `domains`: `string | string[]`. Multi-domain → SAN cert; cache path is `san-<numericHash>` via `getStableDomainPath`.
+- Single domain cache path is the domain name itself under `domains/`.
+- Flow: ensure root CA → generate domain cert if missing → update hosts (unless skipped) → return buffers.
+
+### Options
+
+| Option | Effect |
+|--------|--------|
+| `getCaBuffer` | Add `ca: Buffer` (CA cert contents) |
+| `getCaPath` | Add `caPath: string` (path to CA cert file) |
+| `skipCertutilInstall` | Do not install NSS `certutil`; Firefox may use GUI wizard |
+| `skipHostsFile` | Do not append to system hosts file |
+| `ui` | Partial `UserInterface` merged onto defaults |
+
+Return type is conditional on options via TypeScript mapped types (`IReturnData`).
+
+## Other exports
+
+- `hasCertificateFor` / `configuredDomains` / `removeDomain` — cache inspection and cleanup (domain files only; does not untrust CA).
+- `uninstall` — remove CA from trust stores and delete config (best-effort).
+
+## Domain cert generation
+
+`generateDomainCertificate`: `openssl genrsa` → CSR (templated conf) → `openssl ca` signed with root CA credentials loaded via `withCertificateAuthorityCredentials` (temp key file, deleted after).
+
+## Integrator UI hooks
+
+Implement any subset of `UserInterface` in `user-interface.ts`: Windows encryption password, Chrome/Linux certutil warning, Firefox close/wizard prompts.
+---
