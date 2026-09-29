@@ -1,6 +1,5 @@
 import path from 'path';
-import { unlinkSync as rm, writeFileSync as writeFile, readFileSync as readFile } from 'fs';
-import { sync as mkdirp } from 'mkdirp';
+import { unlink, writeFile, readFile, mkdir } from 'fs/promises';
 import { template as makeTemplate } from 'lodash';
 import applicationConfigPath = require('application-config-path');
 import eol from 'eol';
@@ -59,23 +58,23 @@ function generateSubjectAltNames(domains: string[]): string {
     .join("\r\n");
 }
 
-export function withDomainSigningRequestConfig(domains: string[], cb: (filepath: string) => void) {
+export async function withDomainSigningRequestConfig(domains: string[], cb: (filepath: string) => void | Promise<void>) {
   const domain = domains[0];
   const subjectAltNames = generateSubjectAltNames(domains);
-  let tmpFile = mktmp();
-  let source = readFile(path.join(__dirname, '../openssl-configurations/domain-certificate-signing-requests.conf'), 'utf-8');
+  let tmpFile = await mktmp();
+  let source = await readFile(path.join(__dirname, '../openssl-configurations/domain-certificate-signing-requests.conf'), 'utf-8');
   let template = makeTemplate(source);
   let result = template({domain, subjectAltNames});
-  writeFile(tmpFile, eol.auto(result));
-  cb(tmpFile);
-  rm(tmpFile);
+  await writeFile(tmpFile, eol.auto(result));
+  await cb(tmpFile);
+  await unlink(tmpFile);
 }
 
-export function withDomainCertificateConfig(domains: string[], cb: (filepath: string) => void) {
+export async function withDomainCertificateConfig(domains: string[], cb: (filepath: string) => void | Promise<void>) {
   const domainPath = getStableDomainPath(domains);
   const subjectAltNames = generateSubjectAltNames(domains);
-  let tmpFile = mktmp();
-  let source = readFile(path.join(__dirname, '../openssl-configurations/domain-certificates.conf'), 'utf-8');
+  let tmpFile = await mktmp();
+  let source = await readFile(path.join(__dirname, '../openssl-configurations/domain-certificates.conf'), 'utf-8');
   let template = makeTemplate(source);
   let result = template({
     subjectAltNames,
@@ -83,9 +82,9 @@ export function withDomainCertificateConfig(domains: string[], cb: (filepath: st
     databaseFile: opensslDatabaseFilePath,
     domainDir: pathForDomain(domainPath)
   });
-  writeFile(tmpFile, eol.auto(result));
-  cb(tmpFile);
-  rm(tmpFile);
+  await writeFile(tmpFile, eol.auto(result));
+  await cb(tmpFile);
+  await unlink(tmpFile);
 }
 
   // confTemplate = confTemplate.replace(/DATABASE_PATH/, configPath('index.txt').replace(/\\/g, '\\\\'));
@@ -109,10 +108,8 @@ export function getLegacyConfigDir(): string {
   }
 }
 
-export function ensureConfigDirs() {
-  mkdirp(configDir);
-  mkdirp(domainsDir);
-  mkdirp(rootCADir);
+export async function ensureConfigDirs() {
+  await mkdir(configDir, { recursive: true });
+  await mkdir(domainsDir, { recursive: true });
+  await mkdir(rootCADir, { recursive: true });
 }
-
-ensureConfigDirs();

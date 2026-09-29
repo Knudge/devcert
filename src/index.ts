@@ -1,7 +1,6 @@
-import { readFileSync as readFile, readdirSync as readdir, existsSync as exists } from 'fs';
+import { readFile, readdir, rm } from 'fs/promises';
 import createDebug from 'debug';
 import { sync as commandExists } from 'command-exists';
-import rimraf from 'rimraf';
 import {
   isMac,
   isLinux,
@@ -11,12 +10,14 @@ import {
   domainsDir,
   rootCAKeyPath,
   rootCACertPath,
+  ensureConfigDirs,
 } from './constants';
 import currentPlatform from './platforms';
 import installCertificateAuthority, { ensureCACertReadable, uninstall } from './certificate-authority';
 import generateDomainCertificate from './certificates';
 import UI, { UserInterface } from './user-interface';
 import isValidDomain from 'is-valid-domain';
+import { pathExists } from './utils';
 export { uninstall };
 
 const debug = createDebug('devcert');
@@ -89,10 +90,12 @@ export async function certificateFor<O extends Options>(requestedDomains: string
     throw new Error('OpenSSL not found: OpenSSL is required to generate SSL certificates - make sure it is installed and available in your PATH');
   }
 
+  await ensureConfigDirs();
+
   let domainKeyPath = pathForDomain(domainPath, `private-key.key`);
   let domainCertPath = pathForDomain(domainPath, `certificate.crt`);
 
-  if (!exists(rootCAKeyPath)) {
+  if (!await pathExists(rootCAKeyPath)) {
     debug('Root CA is not installed yet, so it must be our first run. Installing root CA ...');
     await installCertificateAuthority(options);
   } else if (options.getCaBuffer || options.getCaPath) {
@@ -100,41 +103,41 @@ export async function certificateFor<O extends Options>(requestedDomains: string
     await ensureCACertReadable(options);
   }
 
-  if (!exists(pathForDomain(domainPath, `certificate.crt`))) {
+  if (!await pathExists(pathForDomain(domainPath, `certificate.crt`))) {
     debug(`Can't find certificate file for ${domains}, so it must be the first request for ${domains}. Generating and caching ...`);
     await generateDomainCertificate(domains);
   }
 
   if (!options.skipHostsFile) {
-    domains.forEach(async (domain) => {
+    for (const domain of domains)
       await currentPlatform.addDomainToHostFileIfMissing(domain);
-    })
   }
 
   debug(`Returning domain certificate`);
 
   const ret = {
-    key: readFile(domainKeyPath),
-    cert: readFile(domainCertPath)
+    key: await readFile(domainKeyPath),
+    cert: await readFile(domainCertPath)
   } as IReturnData<O>;
-  if (options.getCaBuffer) (ret as unknown as ICaBuffer).ca = readFile(rootCACertPath);
+  if (options.getCaBuffer) (ret as unknown as ICaBuffer).ca = await readFile(rootCACertPath);
   if (options.getCaPath) (ret as unknown as ICaPath).caPath = rootCACertPath;
 
   return ret;
 }
 
-export function hasCertificateFor(requestedDomains: string | string[]) {
+export async function hasCertificateFor(requestedDomains: string | string[]) {
   const domains = Array.isArray(requestedDomains) ? requestedDomains : [requestedDomains];
   const domainPath = getStableDomainPath(domains);
-  return exists(pathForDomain(domainPath, `certificate.crt`));
+  return pathExists(pathForDomain(domainPath, `certificate.crt`));
 }
 
-export function configuredDomains() {
+export async function configuredDomains() {
+  await ensureConfigDirs();
   return readdir(domainsDir);
 }
 
-export function removeDomain(requestedDomains: string | string[]) {
+export async function removeDomain(requestedDomains: string | string[]) {
   const domains = Array.isArray(requestedDomains) ? requestedDomains : [requestedDomains];
   const domainPath = getStableDomainPath(domains);
-  return rimraf.sync(pathForDomain(domainPath));
+  await rm(pathForDomain(domainPath), { recursive: true, force: true });
 }

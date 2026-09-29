@@ -1,7 +1,6 @@
 import createDebug from 'debug';
 import crypto from 'crypto';
-import { writeFileSync as write, readFileSync as read } from 'fs';
-import { sync as rimraf } from 'rimraf';
+import { writeFile, readFile, rm } from 'fs/promises';
 import { Options } from '../index';
 import { assertNotTouchingFiles, openCertificateInFirefox } from './shared';
 import { Platform } from '.';
@@ -45,7 +44,7 @@ export default class WindowsPlatform implements Platform {
     }
   }
   
-  removeFromTrustStores(certificatePath: string) {
+  async removeFromTrustStores(certificatePath: string) {
     debug('removing devcert root from Windows OS trust store');
     try {
       console.warn('Removing old certificates from trust stores. You may be prompted to grant permission for this. It\'s safe to delete old devcert certificates.');
@@ -56,15 +55,15 @@ export default class WindowsPlatform implements Platform {
   }
 
   async addDomainToHostFileIfMissing(domain: string) {
-    let hostsFileContents = read(this.HOST_FILE_PATH, 'utf8');
+    let hostsFileContents = await readFile(this.HOST_FILE_PATH, 'utf8');
     if (!hostsFileContents.includes(domain)) {
       await sudo(`echo 127.0.0.1  ${ domain } >> ${ this.HOST_FILE_PATH }`);
     }
   }
   
-  deleteProtectedFiles(filepath: string) {
+  async deleteProtectedFiles(filepath: string) {
     assertNotTouchingFiles(filepath, 'delete');
-    rimraf(filepath);
+    await rm(filepath, { recursive: true, force: true });
   }
 
   async readProtectedFile(filepath: string): Promise<string> {
@@ -74,7 +73,7 @@ export default class WindowsPlatform implements Platform {
     }
     // Try to decrypt the file
     try {
-      return this.decrypt(read(filepath, 'utf8'), encryptionKey);
+      return this.decrypt(await readFile(filepath, 'utf8'), encryptionKey);
     } catch (e) {
       // If it's a bad password, clear the cached copy and retry
       if (e.message.indexOf('bad decrypt') >= -1) {
@@ -91,7 +90,7 @@ export default class WindowsPlatform implements Platform {
       encryptionKey = await UI.getWindowsEncryptionPassword();
     }
     let encryptedContents = this.encrypt(contents, encryptionKey);
-    write(filepath, encryptedContents);
+    await writeFile(filepath, encryptedContents);
   }
 
   private encrypt(text: string, key: string) {

@@ -1,8 +1,8 @@
 import path from 'path';
-import { writeFileSync as writeFile, existsSync as exists, readFileSync as read } from 'fs';
+import { writeFile, readFile } from 'fs/promises';
 import createDebug from 'debug';
 import { sync as commandExists } from 'command-exists';
-import { run, sudoAppend } from '../utils';
+import { run, sudoAppend, pathExists } from '../utils';
 import { Options } from '../index';
 import { addCertificateToNSSCertDB, assertNotTouchingFiles, openCertificateInFirefox, closeFirefox, removeCertificateFromNSSCertDB } from './shared';
 import { Platform } from '.';
@@ -45,7 +45,7 @@ export default class MacOSPlatform implements Platform {
       certificatePath
     ]);
 
-    if (this.isFirefoxInstalled()) {
+    if (await this.isFirefoxInstalled()) {
       // Try to use certutil to install the cert automatically
       debug('Firefox install detected. Adding devcert root CA to Firefox trust store');
       if (!this.isNSSInstalled()) {
@@ -73,7 +73,7 @@ export default class MacOSPlatform implements Platform {
     }
   }
   
-  removeFromTrustStores(certificatePath: string) {
+  async removeFromTrustStores(certificatePath: string) {
     debug('Removing devcert root CA from macOS system keychain');
     try {
       run('sudo', [
@@ -87,21 +87,21 @@ export default class MacOSPlatform implements Platform {
     } catch(e) {
       debug(`failed to remove ${ certificatePath } from macOS cert store, continuing. ${ e.toString() }`);
     }
-    if (this.isFirefoxInstalled() && this.isNSSInstalled()) {
+    if (await this.isFirefoxInstalled() && this.isNSSInstalled()) {
       debug('Firefox install and certutil install detected. Trying to remove root CA from Firefox NSS databases');
-      removeCertificateFromNSSCertDB(this.FIREFOX_NSS_DIR, certificatePath, getCertUtilPath());
+      await removeCertificateFromNSSCertDB(this.FIREFOX_NSS_DIR, certificatePath, getCertUtilPath());
     }
   }
 
   async addDomainToHostFileIfMissing(domain: string) {
     const trimDomain = domain.trim().replace(/[\s;]/g,'')
-    let hostsFileContents = read(this.HOST_FILE_PATH, 'utf8');
+    let hostsFileContents = await readFile(this.HOST_FILE_PATH, 'utf8');
     if (!hostsFileContents.includes(trimDomain)) {
       sudoAppend(this.HOST_FILE_PATH, `127.0.0.1 ${trimDomain}\n`);
     }
   }
 
-  deleteProtectedFiles(filepath: string) {
+  async deleteProtectedFiles(filepath: string) {
     assertNotTouchingFiles(filepath, 'delete');
     run('sudo', ['rm', '-rf', filepath]);
   }
@@ -113,16 +113,16 @@ export default class MacOSPlatform implements Platform {
 
   async writeProtectedFile(filepath: string, contents: string) {
     assertNotTouchingFiles(filepath, 'write');
-    if (exists(filepath)) {
+    if (await pathExists(filepath)) {
       await run('sudo', ['rm', filepath]);
     }
-    writeFile(filepath, contents);
+    await writeFile(filepath, contents);
     await run('sudo', ['chown', '0', filepath]);
     await run('sudo', ['chmod', '600', filepath]);
   }
 
   private isFirefoxInstalled() {
-    return exists(this.FIREFOX_BUNDLE_PATH);
+    return pathExists(this.FIREFOX_BUNDLE_PATH);
   }
 
   private isNSSInstalled() {
