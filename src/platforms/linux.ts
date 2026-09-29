@@ -1,9 +1,9 @@
 import path from 'path';
-import { existsSync as exists, readFileSync as read, writeFileSync as writeFile } from 'fs';
+import { readFile, writeFile } from 'fs/promises';
 import createDebug from 'debug';
 import { sync as commandExists } from 'command-exists';
 import { addCertificateToNSSCertDB, assertNotTouchingFiles, openCertificateInFirefox, closeFirefox, removeCertificateFromNSSCertDB } from './shared';
-import { run, sudoAppend } from '../utils';
+import { run, sudoAppend, pathExists } from '../utils';
 import { Options } from '../index';
 import UI from '../user-interface';
 import { Platform } from '.';
@@ -37,7 +37,7 @@ export default class LinuxPlatform implements Platform {
     run('sudo', ['cp', certificatePath, this.systemCAPath()]);
     this.updateSystemTrustStore();
 
-    if (this.isFirefoxInstalled()) {
+    if (await this.isFirefoxInstalled()) {
       // Firefox
       debug('Firefox install detected: adding devcert root CA to Firefox-specific trust stores ...');
       if (!commandExists('certutil')) {
@@ -56,7 +56,7 @@ export default class LinuxPlatform implements Platform {
       debug('Firefox does not appear to be installed, skipping Firefox-specific steps...');
     }
 
-    if (this.isChromeInstalled()) {
+    if (await this.isChromeInstalled()) {
       debug('Chrome install detected: adding devcert root CA to Chrome trust store ...');
       if (!commandExists('certutil')) {
         UI.warnChromeOnLinuxWithoutCertutil();
@@ -69,7 +69,7 @@ export default class LinuxPlatform implements Platform {
     }
   }
   
-  removeFromTrustStores(certificatePath: string) {
+  async removeFromTrustStores(certificatePath: string) {
     try {
       run('sudo', ['rm', this.systemCAPath()]);
       this.updateSystemTrustStore();
@@ -77,24 +77,24 @@ export default class LinuxPlatform implements Platform {
       debug(`failed to remove ${ certificatePath } from system trust store at ${ this.systemCAPath() }, continuing. ${ e.toString() }`);
     }
     if (commandExists('certutil')) {
-      if (this.isFirefoxInstalled()) {
-        removeCertificateFromNSSCertDB(this.FIREFOX_NSS_DIR, certificatePath, 'certutil');
+      if (await this.isFirefoxInstalled()) {
+        await removeCertificateFromNSSCertDB(this.FIREFOX_NSS_DIR, certificatePath, 'certutil');
       }
-      if (this.isChromeInstalled()) {
-        removeCertificateFromNSSCertDB(this.CHROME_NSS_DIR, certificatePath, 'certutil');
+      if (await this.isChromeInstalled()) {
+        await removeCertificateFromNSSCertDB(this.CHROME_NSS_DIR, certificatePath, 'certutil');
       }
     }
   }
 
   async addDomainToHostFileIfMissing(domain: string) {
     const trimDomain = domain.trim().replace(/[\s;]/g,'')
-    let hostsFileContents = read(this.HOST_FILE_PATH, 'utf8');
+    let hostsFileContents = await readFile(this.HOST_FILE_PATH, 'utf8');
     if (!hostsFileContents.includes(trimDomain)) {
       sudoAppend(this.HOST_FILE_PATH, `127.0.0.1 ${trimDomain}\n`);
     }
   }
 
-  deleteProtectedFiles(filepath: string) {
+  async deleteProtectedFiles(filepath: string) {
     assertNotTouchingFiles(filepath, 'delete');
     run('sudo', ['rm', '-rf', filepath]);
   }
@@ -106,10 +106,10 @@ export default class LinuxPlatform implements Platform {
 
   async writeProtectedFile(filepath: string, contents: string) {
     assertNotTouchingFiles(filepath, 'write');
-    if (exists(filepath)) {
+    if (await pathExists(filepath)) {
       await run('sudo', ['rm', filepath]);
     }
-    writeFile(filepath, contents);
+    await writeFile(filepath, contents);
     await run('sudo', ['chown', '0', filepath]);
     await run('sudo', ['chmod', '600', filepath]);
   }
@@ -143,11 +143,11 @@ export default class LinuxPlatform implements Platform {
   }
 
   private isFirefoxInstalled() {
-    return exists(this.FIREFOX_BIN_PATH);
+    return pathExists(this.FIREFOX_BIN_PATH);
   }
 
   private isChromeInstalled() {
-    return exists(this.CHROME_BIN_PATH);
+    return pathExists(this.CHROME_BIN_PATH);
   }
 
 }

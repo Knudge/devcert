@@ -1,5 +1,7 @@
 import { execFileSync, ExecFileSyncOptions } from 'child_process';
+import { access } from 'fs/promises';
 import tmp from 'tmp';
+import util from 'util';
 import createDebug from 'debug';
 import path from 'path';
 import sudoPrompt from 'sudo-prompt';
@@ -39,11 +41,19 @@ export function reportableError(message: string) {
   return new Error(`${message} | This is a bug in devcert, please report the issue at https://github.com/davewasmer/devcert/issues`);
 }
 
-export function mktmp() {
-  // discardDescriptor because windows complains the file is in use if we create a tmp file
-  // and then shell out to a process that tries to use it
-  return tmp.fileSync({ discardDescriptor: true }).name;
+export async function pathExists(filepath: string): Promise<boolean> {
+  try {
+    await access(filepath);
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+// discardDescriptor because windows complains the file is in use if we create a tmp file
+// and then shell out to a process that tries to use it
+export const mktmp: () => Promise<string> =
+  util.promisify(tmp.file.bind(tmp, { discardDescriptor: true }));
 
 export function sudo(cmd: string): Promise<string | null> {
   return new Promise((resolve, reject) => {

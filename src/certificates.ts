@@ -1,7 +1,6 @@
 // import path from 'path';
 import createDebug from 'debug';
-import { sync as mkdirp } from 'mkdirp';
-import { chmodSync as chmod } from 'fs';
+import { chmod, mkdir } from 'fs/promises';
 import { openssl } from './utils';
 import { withCertificateAuthorityCredentials } from './certificate-authority';
 import {pathForDomain, getStableDomainPath, withDomainSigningRequestConfig, withDomainCertificateConfig} from './constants';
@@ -17,31 +16,31 @@ const debug = createDebug('devcert:certificates');
  */
 export default async function generateDomainCertificate(domains: string[]): Promise<void> {
   const domainPath = getStableDomainPath(domains);
-  mkdirp(pathForDomain(domainPath));
+  await mkdir(pathForDomain(domainPath), { recursive: true });
 
   debug(`Generating private key for ${domains}`);
   let domainKeyPath = pathForDomain(domainPath, 'private-key.key');
-  generateKey(domainKeyPath);
+  await generateKey(domainKeyPath);
 
   debug(`Generating certificate signing request for ${domains}`);
   let csrFile = pathForDomain(domainPath, `certificate-signing-request.csr`);
-  withDomainSigningRequestConfig(domains, (configpath) => {
+  await withDomainSigningRequestConfig(domains, (configpath) => {
     openssl(['req', '-new', '-config', configpath, '-key', domainKeyPath, '-out', csrFile]);
   });
 
   debug(`Generating certificate for ${domains} from signing request and signing with root CA`);
   let domainCertPath = pathForDomain(domainPath, `certificate.crt`);
 
-  await withCertificateAuthorityCredentials(({caKeyPath, caCertPath}) => {
-    withDomainCertificateConfig(domains, (domainCertConfigPath) => {
+  await withCertificateAuthorityCredentials(async ({caKeyPath, caCertPath}) => {
+    await withDomainCertificateConfig(domains, (domainCertConfigPath) => {
       openssl(['ca', '-config', domainCertConfigPath, '-in', csrFile, '-out', domainCertPath, '-keyfile', caKeyPath, '-cert', caCertPath, '-days', '825', '-batch'])
     });
   });
 }
 
 // Generate a cryptographic key, used to sign certificates or certificate signing requests.
-export function generateKey(filename: string): void {
+export async function generateKey(filename: string): Promise<void> {
   debug(`generateKey: ${ filename }`);
   openssl(['genrsa', '-out', filename, '2048']);
-  chmod(filename, 400);
+  await chmod(filename, 0o400);
 }

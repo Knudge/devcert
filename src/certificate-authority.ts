@@ -1,8 +1,8 @@
 import {
-  unlinkSync as rm,
-  readFileSync as readFile,
-  writeFileSync as writeFile
-} from 'fs';
+  unlink,
+  readFile,
+  writeFile
+} from 'fs/promises';
 import createDebug from 'debug';
 
 import {
@@ -30,17 +30,17 @@ const debug = createDebug('devcert:certificate-authority');
  */
 export default async function installCertificateAuthority(options: Options = {}): Promise<void> {
   debug(`Uninstalling existing certificates, which will be void once any existing CA is gone`);
-  uninstall();
-  ensureConfigDirs();
+  await uninstall();
+  await ensureConfigDirs();
 
   debug(`Making a temp working directory for files to copied in`);
-  let rootKeyPath = mktmp();
+  let rootKeyPath = await mktmp();
 
   debug(`Generating the OpenSSL configuration needed to setup the certificate authority`);
-  seedConfigFiles();
+  await seedConfigFiles();
 
   debug(`Generating a private key`);
-  generateKey(rootKeyPath);
+  await generateKey(rootKeyPath);
 
   debug(`Generating a CA certificate`);
   openssl(['req', '-new', '-x509', '-config', caSelfSignConfig, '-key', rootKeyPath, '-out', rootCACertPath, '-days', '825']);
@@ -56,26 +56,26 @@ export default async function installCertificateAuthority(options: Options = {})
  * Initializes the files OpenSSL needs to sign certificates as a certificate
  * authority, as well as our CA setup version
  */
-function seedConfigFiles() {
+async function seedConfigFiles() {
   // This is v2 of the devcert certificate authority setup
-  writeFile(caVersionFile, '2');
+  await writeFile(caVersionFile, '2');
   // OpenSSL CA files
-  writeFile(opensslDatabaseFilePath, '');
-  writeFile(opensslSerialFilePath, '01');
+  await writeFile(opensslDatabaseFilePath, '');
+  await writeFile(opensslSerialFilePath, '01');
 }
 
 export async function withCertificateAuthorityCredentials(cb: ({ caKeyPath, caCertPath }: { caKeyPath: string, caCertPath: string }) => Promise<void> | void) {
   debug(`Retrieving devcert's certificate authority credentials`);
-  let tmpCAKeyPath = mktmp();
+  let tmpCAKeyPath = await mktmp();
   let caKey = await currentPlatform.readProtectedFile(rootCAKeyPath);
-  writeFile(tmpCAKeyPath, caKey);
+  await writeFile(tmpCAKeyPath, caKey);
   await cb({ caKeyPath: tmpCAKeyPath, caCertPath: rootCACertPath });
-  rm(tmpCAKeyPath);
+  await unlink(tmpCAKeyPath);
 }
 
 async function saveCertificateAuthorityCredentials(keypath: string) {
   debug(`Saving devcert's certificate authority credentials`);
-  let key = readFile(keypath, 'utf-8');
+  let key = await readFile(keypath, 'utf-8');
   await currentPlatform.writeProtectedFile(rootCAKeyPath, key);
 }
 
@@ -110,8 +110,8 @@ export async function ensureCACertReadable(options: Options = {}): Promise<void>
    */
   try {
     const caFileContents = await currentPlatform.readProtectedFile(rootCACertPath);
-    currentPlatform.deleteProtectedFiles(rootCACertPath);
-    writeFile(rootCACertPath, caFileContents);
+    await currentPlatform.deleteProtectedFiles(rootCACertPath);
+    await writeFile(rootCACertPath, caFileContents);
   } catch (e) {
     return installCertificateAuthority(options);
   }
@@ -136,9 +136,9 @@ export async function ensureCACertReadable(options: Options = {}): Promise<void>
  * silently fail that as well; with no existing certificates anymore, the
  * security exposure there is minimal.
  */
-export function uninstall(): void {
-  currentPlatform.removeFromTrustStores(rootCACertPath);
-  currentPlatform.deleteProtectedFiles(domainsDir);
-  currentPlatform.deleteProtectedFiles(rootCADir);
-  currentPlatform.deleteProtectedFiles(getLegacyConfigDir());
+export async function uninstall(): Promise<void> {
+  await currentPlatform.removeFromTrustStores(rootCACertPath);
+  await currentPlatform.deleteProtectedFiles(domainsDir);
+  await currentPlatform.deleteProtectedFiles(rootCADir);
+  await currentPlatform.deleteProtectedFiles(getLegacyConfigDir());
 }
